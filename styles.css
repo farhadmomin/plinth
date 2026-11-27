@@ -81,6 +81,15 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand-2); b
 #toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: #222; color: #fff;
   padding: 10px 16px; border-radius: 10px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; max-width: 90vw; text-align: center; }
 #toast.show { opacity: .94; }
+.bcard { cursor: pointer; }
+.cardfoot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.btn.mini { min-height: 36px; padding: 6px 12px; font-size: 14px; }
+.bottom .btn.up { flex: 0 0 auto; padding: 12px 14px; }
+.gpsbox { background: #f1f5f9; border-radius: 10px; padding: 10px 12px; font-variant-numeric: tabular-nums; }
+.warntext { color: var(--warn); }
+.linkbtn { background: none; border: 0; color: var(--brand-2); padding: 10px 0 0; font-size: 14px; text-decoration: underline; }
+a.btn { text-decoration: none; text-align: center; }
+.installcard { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #e6effa; border-color: #c9dbf0; }
 .empty { text-align: center; padding: 40px 10px; color: var(--muted); }
 .banner { background: var(--warn-bg); color: var(--warn); border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
 .banner.info { background: #e6effa; color: var(--brand); }
