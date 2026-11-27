@@ -112,6 +112,12 @@
     if (!(b.walls || []).length) w.push('No walls entered. If there are none, say so in Notes.');
     else if (wa.X.eff === 0 || wa.Y.eff === 0) w.push('No wall area in the ' + (wa.X.eff === 0 ? 'X' : 'Y') + ' direction. Check directions.');
     var ck = b.checks || {};
+    var Nn = num(b.N);
+    if (ok(Nn) && (Nn < 2 || Nn > 15))
+      w.push('N = ' + Nn + ' is outside the 2–15 storey study scope: refer to supervisor.');
+    var loc = b.location || {};
+    if (!loc.sent && !(ok(num(loc.lat)) && ok(num(loc.lon)))) w.push('No GPS location yet. Tap Get location at the building.');
+    else if (!loc.sent && ok(num(loc.acc)) && num(loc.acc) > 30) w.push('GPS accuracy is ±' + Math.round(num(loc.acc)) + ' m. Retake it outdoors, close to the building.');
     if (ck.transfer === 'yes') w.push('Transfer floor or floating columns above: refer to supervisor.');
     if (ck.weaker === 'yes') w.push('A weaker storey above ground is likely: outside valid scope.');
     if (ck.permission !== 'yes') w.push('Permission not confirmed.');
