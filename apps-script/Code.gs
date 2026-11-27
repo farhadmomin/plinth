@@ -11,7 +11,7 @@
  *       <Project> - Hassan data         <- Buildings, Columns and Walls sheets
  *       <Building code>/                <- photos + full JSON record
  *
- * Setup (once): see SETUP.md. In short: paste this file, set APP_URL below,
+ * Setup (once): see README.md. In short: paste this file, set APP_URL below,
  * run setup(), deploy as a Web app (Execute as: Me, Who has access: Anyone),
  * then run showSetupLink() and send that link to the students.
  */
@@ -88,7 +88,7 @@ var B_HEAD = ['Record ID', 'Building ID', 'Project', 'Status', 'Survey date', 'S
 var C_HEAD = ['Record ID', 'Building ID', 'Row', 'Count', 'Width', 'Depth', 'Unit', 'Over plaster', 'Width (m)', 'Depth (m)', 'Area of group (m²)'];
 var W_HEAD = ['Record ID', 'Building ID', 'Row', 'Type', 'Case B type', 'Direction', 'Count', 'Length', 'Length unit',
   'Thickness', 'Thickness unit', 'Area of group (m²)'];
-var L_HEAD = ['Record ID', 'Project', 'Building ID', 'Address or landmark', 'Latitude', 'Longitude', 'Updated'];
+var L_HEAD = ['Record ID', 'Project', 'Building ID', 'Landmark (student)', 'Latitude', 'Longitude', 'Updated', 'GPS accuracy (m)', 'Address (Google Maps)', 'Google Maps link'];
 
 function saveBuilding_(body) {
   var b = body.building, r = body.results || {};
@@ -141,7 +141,12 @@ function saveBuilding_(body) {
   var loc = body.location || {};
   if (loc.text || loc.lat || loc.lon) {
     var ls = locationSheet_();
-    replaceRows_(ls, b.id, [[b.id, b.project, code, loc.text || '', n_(loc.lat), n_(loc.lon), new Date()]]);
+    var lat = num_(loc.lat), lon = num_(loc.lon), addr = '', link = '';
+    if (isFinite(lat) && isFinite(lon)) {
+      link = 'https://www.google.com/maps?q=' + lat + ',' + lon;
+      addr = address_(lat, lon);
+    }
+    replaceRows_(ls, b.id, [[b.id, b.project, code, loc.text || '', n_(loc.lat), n_(loc.lon), new Date(), n_(loc.acc), addr, link]]);
   }
   return { ok: true, code: code, note: note };
 }
@@ -156,6 +161,15 @@ function savePhoto_(body) {
     folder.createFile(blob).setDescription(body.label || '');
   }
   return { ok: true };
+}
+
+/** Street address for a GPS point, from Google Maps (built-in Apps Script service, no API key). */
+function address_(lat, lon) {
+  try {
+    var g = Maps.newGeocoder().reverseGeocode(lat, lon);
+    if (g && g.status === 'OK' && g.results && g.results.length) return g.results[0].formatted_address;
+  } catch (e) {}
+  return '';
 }
 
 /* ---------- Drive and Sheets helpers ---------- */
@@ -191,7 +205,9 @@ function locationSheet_() {
     ss.getSheets()[0].setName('Locations');
     head_(ss.getSheets()[0], L_HEAD);
   }
-  return ss.getSheets()[0];
+  var sh = ss.getSheets()[0];
+  if (sh.getLastColumn() < L_HEAD.length) head_(sh, L_HEAD);
+  return sh;
 }
 function head_(sh, head) {
   sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold').setBackground('#1f3a5f').setFontColor('#ffffff');
