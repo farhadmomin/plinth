@@ -1,5 +1,5 @@
 /* Offline cache for the app shell. Bump VERSION when files change. */
-var VERSION = 'plinth-v1.0.0';
+var VERSION = 'plinth-v1.1.0';
 var SHELL = ['./', 'index.html', 'styles.css', 'calc.js', 'app.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/logo.svg', 'icons/favicon-48.png'];
 
 self.addEventListener('install', function (e) {
