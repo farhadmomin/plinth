@@ -4,7 +4,7 @@
    Google Drive through a Google Apps Script web app. */
 (function () {
   'use strict';
-  var VERSION = '1.0.0';
+  var VERSION = '1.1.0';
   var H = window.HCalc;
 
   /* ---------------- storage (IndexedDB) ---------------- */
@@ -49,6 +49,7 @@
   function $(sel) { return document.querySelector(sel); }
   function fmt(x, d) { return (typeof x === 'number' && isFinite(x)) ? x.toFixed(d === undefined ? 3 : d) : '—'; }
   function today() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function when(iso) { var d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
   function toast(msg, ms) { var t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(function () { t.classList.remove('show'); }, ms || 2200); }
   function opts(list, val) {
     return list.map(function (o) { var v = Array.isArray(o) ? o[0] : o, l = Array.isArray(o) ? o[1] : o;
@@ -148,18 +149,21 @@
     h += '<div class="card"><label class="f" for="proj">Project</label><div class="row"><select id="proj" data-act="project">' +
       opts(S.projects, S.project) + '</select><button class="btn light narrow" data-act="addProject">+ New</button></div>' +
       '<div class="tot"><span>' + list.length + ' building(s) · ' + waiting + ' waiting to upload</span></div>' +
-      '<button class="btn block" style="margin-top:10px" data-act="uploadAll"' + (S.uploading || !waiting ? ' disabled' : '') + '>' +
-      (S.uploading ? 'Uploading…' : 'Upload to Google Drive') + '</button></div>';
+      (list.length ? '<button class="btn block' + (waiting ? '' : ' light') + '" style="margin-top:10px" data-act="uploadAll"' + (S.uploading ? ' disabled' : '') + '>' +
+      (S.uploading ? 'Uploading…' : (waiting ? '⇪ Upload ' + waiting + ' building' + (waiting > 1 ? 's' : '') + ' to Google Drive' : '✓ All uploaded · Upload again')) + '</button>' : '') + '</div>';
+    h += installCard();
     if (!list.length) h += '<div class="empty">No buildings yet.<br>Tap <b>+ New building</b> to start.</div>';
     list.forEach(function (b) {
       var r = results(b), A = r.A;
-      h += '<button class="bcard" data-act="open" data-id="' + b.id + '"><div class="t"><span class="code">' + esc(b.code || '(no code)') +
+      h += '<div class="bcard" role="button" tabindex="0" data-act="open" data-id="' + b.id + '"><div class="t"><span class="code">' + esc(b.code || '(no code)') +
         '</span><span class="pi">PI ' + fmt(A.PI) + '%</span></div><div class="muted small">' + esc(b.storeys || '') +
         (b.storeys ? ' · ' : '') + esc(b.date || '') + '</div><div class="chips" style="margin-top:6px">' +
         (b.status === 'complete' ? '<span class="chip ok">Complete</span>' : '<span class="chip">Draft</span>') +
         (b.dirty ? '<span class="chip warn">Not uploaded</span>' : '<span class="chip ok">Uploaded</span>') +
         (r.warnings.length ? '<span class="chip warn">' + r.warnings.length + ' check(s)</span>' : '') +
-        (A.PI < H.REF.PI ? '<span class="chip bad">PI &lt; 0.25%</span>' : '') + '</div></button>';
+        (A.PI < H.REF.PI ? '<span class="chip bad">PI &lt; 0.25%</span>' : '') + '</div>' +
+        '<div class="cardfoot"><span class="muted small">' + (b.uploadedAt ? 'Last upload ' + esc(when(b.uploadedAt)) : 'Never uploaded') + '</span>' +
+        '<button class="btn light mini" data-act="uploadCard" data-id="' + b.id + '"' + (S.uploading ? ' disabled' : '') + '>⇪ Upload</button></div></div>';
     });
     h += '</div><button class="btn fab" data-act="new">+ New building</button>';
     return h;
@@ -171,8 +175,9 @@
       ' · ' + esc(b.project) + '</h1>' + netChip() + '</div><div class="steps">' +
       STEPS.map(function (s, i) { return '<button data-act="step" data-i="' + i + '" class="' + (i === S.step ? 'on' : '') + '">' + (i + 1) + ' ' + s + '</button>'; }).join('') +
       '</div><div class="wrap">' + [stepDetails, stepColumns, stepWalls, stepPhotos, stepResults][S.step](b) + '</div>';
+    var upBtn = '<button class="btn ' + (S.step < 4 ? 'light up' : '') + '" data-act="uploadOne"' + (S.uploading ? ' disabled' : '') + '>' + (S.uploading ? 'Uploading…' : (S.step < 4 ? '⇪ Upload' : '⇪ Save & upload')) + '</button>';
     h += '<div class="bottom">' + (S.step > 0 ? '<button class="btn light" data-act="prev">Back</button>' : '<button class="btn light" data-act="home">Close</button>') +
-      (S.step < 4 ? '<button class="btn" data-act="next">Next</button>' : '<button class="btn" data-act="uploadOne"' + (S.uploading ? ' disabled' : '') + '>' + (S.uploading ? 'Uploading…' : 'Save & upload') + '</button>') + '</div>';
+      upBtn + (S.step < 4 ? '<button class="btn" data-act="next">Next</button>' : '') + '</div>';
     return h;
   }
 
@@ -218,12 +223,33 @@
       '<label class="f">Likely weaker storey above ground?<span class="hint">e.g. an upper storey with fewer columns or walls than the ground storey</span></label>' + seg('checks.weaker', b.checks.weaker, YN) +
       field('Total number of columns at the assessed level', 'statedColumns', b.statedColumns, 'number', 'Used to check that every column is entered.') + '</div>';
 
-    h += '<div class="card"><h2>Location (private)</h2><p class="muted">Goes only to the supervisor’s private location sheet, not into the thesis data.</p>' +
-      field('Address or landmark', 'location.text', b.location.text) +
-      '<div class="row"><div>' + field('Latitude', 'location.lat', b.location.lat, 'number') + '</div><div>' + field('Longitude', 'location.lon', b.location.lon, 'number') + '</div></div>' +
-      '<button class="btn light block" style="margin-top:10px" data-act="gps">Use my current location</button>' +
-      '<label class="f">Notes</label><textarea data-f="notes">' + esc(b.notes) + '</textarea></div>';
+    h += locationCard(b) + '<div class="card"><h2>Notes</h2><textarea data-f="notes">' + esc(b.notes) + '</textarea></div>';
     return h;
+  }
+
+  function locationCard(b) {
+    var L = b.location || {}, has = L.lat !== '' && L.lat != null && L.lon !== '' && L.lon != null;
+    var h = '<div class="card"><h2>Location (private)</h2><p class="muted">Taken from the phone’s GPS at the building. It goes only to the supervisor’s private location sheet, and is removed from this phone after upload.</p>';
+    if (L.sent && !has) {
+      h += '<div class="banner info">✓ Location sent to the supervisor and removed from this phone.</div><button class="btn light block" data-act="gps">Retake location</button>';
+    } else if (S.gpsBusy) {
+      h += '<div class="banner info">Getting GPS location… stand outside, close to the building.</div>';
+    } else if (has) {
+      var acc = H.num(L.acc), good = !(acc > 30);
+      h += '<div class="gpsbox"><div><b>' + esc((+L.lat).toFixed(6)) + ', ' + esc((+L.lon).toFixed(6)) + '</b></div><div class="small ' + (good ? 'muted' : 'warntext') + '">' +
+        (isNaN(acc) ? 'Entered by hand' : 'Accuracy ±' + Math.round(acc) + ' m' + (good ? '' : ': weak, retake outdoors')) + (L.time ? ' · ' + esc(when(L.time)) : '') + '</div></div>' +
+        '<div class="grid2" style="margin-top:8px"><button class="btn light" data-act="gps">↻ Retake</button>' +
+        '<a class="btn light" target="_blank" rel="noopener" href="https://www.google.com/maps?q=' + encodeURIComponent(L.lat + ',' + L.lon) + '">Check on Google Maps</a></div>';
+    } else {
+      h += '<button class="btn block" data-act="gps">📍 Get location</button>' + (S.gpsError ? '<p class="small warntext">' + esc(S.gpsError) + '</p>' : '');
+    }
+    h += field('Landmark (optional)', 'location.text', L.text, 'text', 'e.g. corner plot opposite the mosque. The street address is added automatically from Google Maps.');
+    if (S.editLoc) {
+      h += '<div class="row"><div>' + field('Latitude', 'location.lat', L.lat, 'number') + '</div><div>' + field('Longitude', 'location.lon', L.lon, 'number') + '</div></div>';
+    } else {
+      h += '<button class="linkbtn" data-act="editLoc">Enter coordinates by hand instead</button>';
+    }
+    return h + '</div>';
   }
 
   var UNITS = [['in', 'inch'], ['ft', 'ft'], ['mm', 'mm'], ['cm', 'cm'], ['m', 'm']];
@@ -366,10 +392,10 @@
     switch (a) {
       case 'settings': S.view = 'settings'; render(); window.scrollTo(0, 0); break;
       case 'home': saveCurrent().then(function () { S.view = 'home'; S.b = null; render(); window.scrollTo(0, 0); }); break;
-      case 'new': S.b = newBuilding(); S.step = 0; S.view = 'edit'; saveCurrent(); render(); window.scrollTo(0, 0); break;
+      case 'new': S.b = newBuilding(); S.step = 0; S.view = 'edit'; S.editLoc = false; S.gpsError = ''; saveCurrent(); render(); window.scrollTo(0, 0); gps(true); break;
       case 'open': S.b = JSON.parse(JSON.stringify(S.buildings.find(function (x) { return x.id === t.dataset.id; })));
         if (!S.b.checks) S.b.checks = {}; if (!S.b.location) S.b.location = {};
-        S.step = 0; S.view = 'edit'; render(); window.scrollTo(0, 0); break;
+        S.step = 0; S.view = 'edit'; S.editLoc = false; S.gpsError = ''; S.gpsBusy = false; render(); window.scrollTo(0, 0); break;
       case 'step': S.step = i; render(); window.scrollTo(0, 0); break;
       case 'next': S.step = Math.min(4, S.step + 1); saveCurrent(); render(); window.scrollTo(0, 0); break;
       case 'prev': S.step = Math.max(0, S.step - 1); render(); window.scrollTo(0, 0); break;
@@ -394,11 +420,23 @@
         }
         break;
       case 'uploadOne': saveCurrent().then(function () { return uploadAll([S.b.id]); }); break;
-      case 'uploadAll': uploadAll(); break;
+      case 'uploadAll': {
+        var pl = projectBuildings(), wt = pl.filter(function (x) { return x.dirty; });
+        uploadAll((wt.length ? wt : pl).map(function (x) { return x.id; }));
+        break;
+      }
+      case 'uploadCard': uploadAll([t.dataset.id]); break;
+      case 'editLoc': S.editLoc = true; keepScroll(render); break;
+      case 'install': doInstall(); break;
+      case 'hideInstall': S.hideInstall = true; db.put('kv', true, 'hideInstall'); keepScroll(render); break;
       case 'testUpload': testUpload(); break;
       case 'backup': backup(); break;
       case 'restore': $('#restoreInput').click(); break;
     }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('bcard')) { e.preventDefault(); e.target.click(); }
   });
 
   /* ---------------- photos ---------------- */
@@ -437,13 +475,24 @@
     });
   }
 
-  function gps() {
-    if (!navigator.geolocation) return toast('Location is not available on this phone.');
-    toast('Getting location…', 4000);
+  function gps(silent) {
+    var b = S.b;
+    if (!navigator.geolocation) { S.gpsError = 'This phone does not give a location to Chrome.'; if (!silent) keepScroll(render); return; }
+    S.gpsBusy = true; S.gpsError = ''; if (S.view === 'edit' && S.step === 0) keepScroll(render);
     navigator.geolocation.getCurrentPosition(function (p) {
-      S.b.location.lat = p.coords.latitude.toFixed(6); S.b.location.lon = p.coords.longitude.toFixed(6);
-      touch(); keepScroll(render); toast('Location added.');
-    }, function () { toast('Could not get location. Check that location is on.'); }, { enableHighAccuracy: true, timeout: 15000 });
+      S.gpsBusy = false;
+      if (!S.b || S.b.id !== b.id) return;
+      S.b.location = S.b.location || {};
+      Object.assign(S.b.location, { lat: p.coords.latitude.toFixed(6), lon: p.coords.longitude.toFixed(6),
+        acc: Math.round(p.coords.accuracy), time: new Date().toISOString(), source: 'gps', sent: false });
+      S.editLoc = false; touch();
+      if (S.view === 'edit' && S.step === 0) keepScroll(render);
+      toast('Location added (±' + Math.round(p.coords.accuracy) + ' m).');
+    }, function (err) {
+      S.gpsBusy = false;
+      S.gpsError = err && err.code === 1 ? 'Location permission is off. Allow location for Chrome, then tap Get location.' : 'Could not get a GPS fix. Go outside and tap Get location again.';
+      if (S.view === 'edit' && S.step === 0) keepScroll(render);
+    }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
   }
 
   /* ---------------- upload ---------------- */
@@ -465,11 +514,11 @@
   function uploadAll(ids) {
     if (S.uploading) return;
     if (!S.settings.url || !S.settings.key) { toast('Upload is not set up. Ask your supervisor for the setup link.', 3500); return; }
-    if (!navigator.onLine) { toast('You are offline. Data is safe on the phone and will upload later.', 3500); return; }
+    if (!navigator.onLine) { toast('No signal: everything is saved on the phone and will upload when you are online.', 4000); return; }
     var list = S.buildings.filter(function (b) { return ids ? ids.indexOf(b.id) >= 0 : (b.dirty && b.project === S.project); });
     if (!list.length) { toast('Nothing to upload.'); return; }
     S.uploading = true; render();
-    var done = 0, failed = 0, lastErr = '';
+    var done = 0, failed = 0, lastErr = '', names = [];
     var chain = Promise.resolve();
     list.forEach(function (b0) {
       chain = chain.then(function () {
@@ -494,6 +543,11 @@
               (cur.photos || []).forEach(function (p) { if (upIds.indexOf(p.id) >= 0) p.uploaded = true; });
               cur.serverNote = resp.note || ''; cur.uploadedAt = new Date().toISOString();
               if (cur.updated === b.updated) cur.dirty = false;
+              var L0 = b.location || {}, L1 = cur.location || {};
+              if (L0.lat && L1.lat === L0.lat && L1.lon === L0.lon && L1.text === L0.text) {
+                cur.location = { text: '', lat: '', lon: '', sent: true, time: L1.time || '' };
+              }
+              names.push(resp.code || b.code);
               done++;
               return cur === S.b ? saveCurrent() : db.put('buildings', cur);
             });
@@ -502,7 +556,9 @@
     });
     chain.then(function () {
       S.uploading = false; keepScroll(render);
-      toast(failed ? ('Uploaded ' + done + ', failed ' + failed + ': ' + lastErr) : ('Uploaded ' + done + ' building(s) to Drive.'), failed ? 5000 : 2500);
+      var msg = failed ? ((done ? 'Uploaded ' + names.join(', ') + '. ' : '') + 'Failed ' + failed + ': ' + lastErr + ' Data is still on the phone.')
+        : ('✓ Uploaded ' + names.join(', ') + ' to Google Drive.');
+      toast(msg, failed ? 6000 : 3000);
     });
   }
   function testUpload() {
@@ -538,6 +594,22 @@
     }).catch(function () { toast('That file is not a Plinth backup.'); });
   });
 
+  /* ---------------- install ---------------- */
+  var deferredPrompt = null;
+  function standalone() { return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; }
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); deferredPrompt = e; if (S.view === 'home') keepScroll(render); });
+  window.addEventListener('appinstalled', function () { deferredPrompt = null; toast('Plinth installed. Open it from your home screen.', 3500); if (S.view === 'home') keepScroll(render); });
+  function installCard() {
+    if (standalone() || S.hideInstall) return '';
+    if (deferredPrompt) return '<div class="card installcard"><div><b>Install Plinth on this phone</b><div class="muted small">Opens full screen and works without signal.</div></div><button class="btn" data-act="install">Install</button></div>';
+    return '<div class="card installcard"><div><b>Install Plinth on this phone</b><div class="muted small">In Chrome: tap ⋮ (top right) → Add to home screen → Install.</div></div><button class="x" data-act="hideInstall" aria-label="Hide">Hide</button></div>';
+  }
+  function doInstall() {
+    if (!deferredPrompt) return toast('In Chrome: tap ⋮ → Add to home screen → Install.', 4000);
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(function () { deferredPrompt = null; keepScroll(render); });
+  }
+
   /* ---------------- start ---------------- */
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(function () {});
@@ -547,7 +619,7 @@
     });
   }
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
-  loadSettings().then(loadBuildings).then(function () {
+  loadSettings().then(function () { return db.get('kv', 'hideInstall').then(function (v) { S.hideInstall = !!v; }); }).then(loadBuildings).then(function () {
     render();
     if (navigator.onLine && S.settings.autoUpload && S.settings.url && S.buildings.some(function (b) { return b.dirty; })) setTimeout(uploadAll, 2500);
   }).catch(function (e) { $('#app').innerHTML = '<div class="wrap"><div class="banner">Storage error: ' + esc(e && e.message) + '</div></div>'; });
